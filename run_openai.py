@@ -1,30 +1,26 @@
-od"""
-Simple try of the agent.
-
-@dev You need to add OPENAI_API_KEY to your environment variables.
 """
-
-import os
-import sys
-
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
+OpenAI sanity-check with tool-calling support.
+Requires OPENAI_API_KEY in .env.
+"""
 import asyncio
-
+from browser_use import Agent
 from langchain_openai import ChatOpenAI
 
-from browser_use import Agent
+# Use GPT-4o mini – supports parallel_tool_calls
+llm = ChatOpenAI(model="gpt-4o-mini")
 
-llm = ChatOpenAI(model='o4-mini')
-agent = Agent(
-	task='Go to amazon.com, search for laptop, sort by best rating, and give me the price of the first result',
-	llm=llm,
+TASK = (
+    "Go to amazon.com, search for laptop, sort by best rating, "
+    "and give me the price of the first result."
 )
 
-
 async def main():
-	await agent.run(max_steps=10)
-	input('Press Enter to continue...')
+    agent = Agent(
+        task=TASK,
+        llm=llm,
+        enable_memory=True,
+    )
+    print(await agent.run(max_steps=10))
 
-
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
