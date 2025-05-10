@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
         "browser-use>=0.1.43",
+        "duckduckgo-search>=8.0.1",
         "flask>=3.1.0",
         "langchain-ollama",
         "playwright",

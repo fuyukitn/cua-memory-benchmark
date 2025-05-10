@@ -4,9 +4,11 @@ import asyncio
 
 llm = ChatOllama(model="llama3")
 
+task="Go to https://www.google.com/, then tell the title."
+
 async def main():
     agent = Agent(
-        task = "Go to https://www.google.com/, then tell the title.",
+        task = task,
         llm=llm,
         enable_memory=True,
     )
