@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Spreadsheet</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    html, body {height: 100%; margin: 0; overflow: hidden;}
+    .scroll-container {
+      width: 100vw;
+      height: calc(100vh - 60px); /* leave space for top bar */
+      overflow: auto;
+    }
+    table.sheet td, table.sheet th {
+      border: 1px solid #ccc;
+      padding: 0;
+      text-align: center;
+      min-width: 80px;
+      min-height: 32px;
+      user-select: none;
+    }
+    table.sheet input {
+      border: none;
+      width: 100%;
+      height: 100%;
+      padding: 4px;
+      background: transparent;
+    }
+    table.sheet input:focus {
+      outline: 2px solid #0d6efd;
+    }
+    table.sheet th {
+      background-color: #f0f0f0;
+      position: sticky;
+      z-index: 2;
+    }
+    table.sheet thead th {
+      top: 0;
+    }
+    table.sheet tbody th {
+      left: 0;
+      z-index: 1;
+      position: sticky;
+      background: #f0f0f0;
+    }
+    .selected {
+      background: #b3d7ff !important;
+    }
+    /* --- Sticky header layering fixes --- */
+    table.sheet thead th { top: 0; z-index: 3; }
+    table.sheet tbody th { left: 0; z-index: 2; }
+    table.sheet th.corner { position: sticky; top: 0; left: 0; z-index: 5; background: #f0f0f0; }
+  </style>
+</head>
+<body>
+<div class="container-fluid mt-2">
+  <!-- Top action bar -->
+  <div class="d-flex align-items-center mb-2 gap-2">
+    <button id="save-btn" class="btn btn-primary">Save</button>
+    <a href="{{ url_for('clear') }}" class="btn btn-danger" id="clear-btn">Clear Sheet</a>
+    <!-- Cell inspector -->
+    <div class="ms-auto d-flex align-items-center gap-1" id="cell-inspector">
+      <span id="inspector-ref" class="fw-bold"></span>
+      <input id="inspector-raw" class="form-control form-control-sm" style="width:140px" readonly />
+      <span>=</span>
+      <input id="inspector-eval" class="form-control form-control-sm" style="width:140px" readonly />
+    </div>
+  </div>
+
+  <div class="scroll-container">
+    <table class="table sheet w-auto" id="sheet-table">
+      <thead>
+        <tr>
+          <th class="corner"></th>
+          {% for col in cols %}
+          <th class="col-header" data-col="{{ loop.index0 }}">{{ col }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <th class="row-header" data-row="{{ loop.index0 }}">{{ row }}</th>
+          {% for col in cols %}
+          {% set cid = col + row|string %}
+          <td>
+            <input type="text" name="{{ cid }}" value="{{ sheet[cid] }}" data-cell="{{ cid }}" autocomplete="off" />
+          </td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+// --- Selection logic ---
+let isMouseDown = false;
+let startCell = null;
+let selectedCells = new Set();
+let activeInput = null;
+let isTypingInSelection = false; // Track if user is actively typing in a selection
+
+// *** Cell inspector DOM refs ***
+const inspectorRef  = document.getElementById('inspector-ref');
+const inspectorRaw  = document.getElementById('inspector-raw');
+const inspectorEval = document.getElementById('inspector-eval');
+
+function getCellCoords(cell) {
+  const td = cell.closest('td');
+  if (!td) return null;
+  const tr = td.parentElement;
+  const rowIdx = tr.rowIndex - 1; // tbody row
+  const colIdx = td.cellIndex - 1; // skip th
+  return {row: rowIdx, col: colIdx};
+}
+
+function getCellByCoords(row, col) {
+  const table = document.getElementById('sheet-table');
+  if (!table) return null;
+  const tr = table.tBodies[0].rows[row];
+  if (!tr) return null;
+  const td = tr.cells[col+1];
+  if (!td) return null;
+  return td.querySelector('input');
+}
+
+function clearSelection() {
+  // Before clearing, commit any pending values (e.g., newly typed formulas) in all selected cells
+  if (selectedCells.size > 0) {
+    selectedCells.forEach(cell => commitCellValue(cell));
+  }
+  document.querySelectorAll('.selected').forEach(e => e.classList.remove('selected'));
+  selectedCells.clear();
+  isTypingInSelection = false; // Reset typing state when selection changes
+  updateInspectorDisplay();
+}
+
+function selectRange(cell1, cell2) {
+  clearSelection();
+  const c1 = getCellCoords(cell1);
+  const c2 = getCellCoords(cell2);
+  if (!c1 || !c2) return;
+  const rmin = Math.min(c1.row, c2.row);
+  const rmax = Math.max(c1.row, c2.row);
+  const cmin = Math.min(c1.col, c2.col);
+  const cmax = Math.max(c1.col, c2.col);
+  for (let r = rmin; r <= rmax; r++) {
+    for (let c = cmin; c <= cmax; c++) {
+      const input = getCellByCoords(r, c);
+      if (input) {
+        input.classList.add('selected');
+        selectedCells.add(input);
+      }
+    }
+  }
+  updateInspectorDisplay();
+}
+
+// Get cell reference from grid position (e.g., 0,0 -> "A1")
+function getCellRef(row, col) {
+  const table = document.getElementById('sheet-table');
+  if (!table) return null;
+  
+  // Get column header
+  const colHeader = table.querySelector(`thead tr th:nth-child(${col + 2})`);
+  if (!colHeader) return null;
+  
+  // Get row header
+  const rowHeader = table.querySelector(`tbody tr:nth-child(${row + 1}) th`);
+  if (!rowHeader) return null;
+  
+  return colHeader.textContent + rowHeader.textContent;
+}
+
+// Parse cell reference (always absolute now)
+function parseCellRef(ref) {
+  const clean = ref.replace(/\$/g, ''); // strip dollar signs if user types them
+  const m = clean.match(/([A-Z]+)(\d+)/);
+  if (!m) return null;
+  const [, col, row] = m;
+  return { col, row: parseInt(row) };
+}
+
+// Formula evaluation without server
+function evaluateFormula(formula) {
+  // Extract all cell references (allow optional $ but treat same)
+  const cellRefs = formula.match(/\$?[A-Z]+\$?\d+/g) || [];
+  let expr = formula;
+  
+  // Replace each reference with its value
+  for (const ref of cellRefs) {
+    const parsed = parseCellRef(ref);
+    if (!parsed) continue;
+    
+    // Find the cell in the DOM
+    const cellInput = document.querySelector(`input[data-cell="${parsed.col}${parsed.row}"]`);
+    let value = cellInput ? cellInput.value : '';
+    
+    // Try to convert to number
+    if (value === '') value = '0';
+    if (!isNaN(value)) {
+      value = parseFloat(value);
+    } else {
+      value = 0; // Default for non-numeric
+    }
+    
+    // Replace each occurrence exactly (use regex with global flag) preserve tokens
+    expr = expr.replaceAll(ref, value);
+  }
+  
+  // Evaluate the resulting expression
+  try {
+    return eval(expr);
+  } catch (e) {
+    return 'Error';
+  }
+}
+
+// Utility: recalc all formulas with fail-safe redundancy
+function triggerRecalc() {
+  // Immediate recalculation
+  recalcAllFormulas();
+  // Redundant recalculation in next event loop tick (covers async value changes)
+  setTimeout(recalcAllFormulas, 0);
+}
+
+// --- Formula utilities ---
+function setFormula(cellInput, formulaStr) {
+  cellInput.dataset.formula = formulaStr; // store WITHOUT leading '='
+}
+
+function clearFormula(cellInput) {
+  delete cellInput.dataset.formula;
+}
+
+function recalcAllFormulas() {
+  const active = document.activeElement;
+  document.querySelectorAll('input[data-formula]').forEach(inp => {
+    if (inp === active) return; // do not overwrite cell currently being edited
+    const formula = inp.dataset.formula;
+    if (formula) {
+      inp.value = evaluateFormula(formula);
+    }
+  });
+}
+
+// Input handling for all cells
+document.querySelectorAll('input[data-cell]').forEach(input => {
+  // Mousedown for selection start
+  input.addEventListener('mousedown', e => {
+    isMouseDown = true;
+    startCell = input;
+    selectRange(input, input);
+    activeInput = input;
+    e.preventDefault(); // Prevent text selection
+  });
+  
+  // Mouseenter for drag selection
+  input.addEventListener('mouseenter', e => {
+    if (isMouseDown && startCell) {
+      selectRange(startCell, input);
+    }
+  });
+  
+  // Click to allow editing the cell
+  input.addEventListener('click', e => {
+    activeInput = input;
+    input.focus();
+    updateInspectorDisplay();
+  });
+  
+  // On focus, select text in cell
+  input.addEventListener('focus', e => {
+    activeInput = input;
+    updateInspectorDisplay();
+  });
+
+  // Evaluate formula on blur
+  input.addEventListener('blur', () => commitCellValue(input));
+
+  // Handle Enter key to move down
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      commitCellValue(input);
+      const coords = getCellCoords(input);
+      if (!coords) return;
+      const nextInput = getCellByCoords(coords.row + 1, coords.col);
+      if (nextInput) {
+        clearSelection();
+        nextInput.focus();
+        nextInput.select();
+        nextInput.classList.add('selected');
+        selectedCells.add(nextInput);
+      }
+    }
+  });
+});
+
+// Handle mouseup to stop drag selection
+document.addEventListener('mouseup', () => {
+  isMouseDown = false;
+  
+  // After drag-selection, focus the top-left cell of the selection
+  if (selectedCells.size > 0) {
+    focusTopLeftOfSelection();
+  }
+});
+
+// Handle keydown events for the document
+document.addEventListener('keydown', function(e) {
+  const isInputElem = e.target.tagName === 'INPUT';
+  const hasSelection = selectedCells.size > 0;
+
+  // Universal clearing logic for 1-or-more selected cells when not in edit mode
+  if (hasSelection && (e.key === 'Backspace' || e.key === 'Delete')) {
+    clearSelectedCells();
+    triggerRecalc();
+    updateInspectorDisplay();
+    isTypingInSelection = false;
+    e.preventDefault();
+    return;
+  }
+
+  // When editing a single focused cell let native behavior continue
+  if (selectedCells.size === 1 && isInputElem) {
+    return;
+  }
+
+  // Multi-cell extra behaviors
+  if (selectedCells.size > 1) {
+    if (e.key === 'Enter') {
+      // Commit formulas/values for all selected cells
+      selectedCells.forEach(cell => commitCellValue(cell));
+      isTypingInSelection = false;
+      e.preventDefault();
+      return;
+    }
+    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      // Handle typing in multi-selection (first key overwrites, subsequent append)
+      if (!isTypingInSelection) {
+        selectedCells.forEach(cell => {
+          clearFormula(cell);
+          cell.value = e.key;
+        });
+        isTypingInSelection = true;
+      } else {
+        selectedCells.forEach(cell => cell.value += e.key);
+      }
+      triggerRecalc();
+      updateInspectorDisplay();
+      e.preventDefault();
+    }
+  }
+});
+
+// Reset typing state on mouse events
+document.addEventListener('mousedown', () => {
+  isTypingInSelection = false;
+});
+
+// --- Header click selection ---
+document.querySelectorAll('.col-header').forEach(th => {
+  th.addEventListener('click', () => {
+    const colIdx = parseInt(th.dataset.col);
+    clearSelection();
+    const table = document.getElementById('sheet-table');
+    const rows = table.tBodies[0].rows.length;
+    for (let r = 0; r < rows; r++) {
+      const input = getCellByCoords(r, colIdx);
+      if (input) {
+        input.classList.add('selected');
+        selectedCells.add(input);
+      }
+    }
+    focusTopLeftOfSelection();
+  });
+});
+
+document.querySelectorAll('.row-header').forEach(th => {
+  th.addEventListener('click', () => {
+    const rowIdx = parseInt(th.dataset.row);
+    clearSelection();
+    const table = document.getElementById('sheet-table');
+    const cols = table.tHead.rows[0].cells.length - 1; // exclude corner
+    for (let c = 0; c < cols; c++) {
+      const input = getCellByCoords(rowIdx, c);
+      if (input) {
+        input.classList.add('selected');
+        selectedCells.add(input);
+      }
+    }
+    focusTopLeftOfSelection();
+  });
+});
+
+// --- Formula evaluation in cells ---
+function evaluateCellFormula(cellInput) {
+  const val = cellInput.value;
+  if (val.startsWith('=')) {
+    // User just typed/edited a formula
+    const formula = val.slice(1);
+    setFormula(cellInput, formula);
+    cellInput.value = evaluateFormula(formula);
+  } else {
+    // No '=' typed. If a formula already exists and the displayed value
+    // hasn't been manually changed, keep the formula instead of clearing it.
+    if (cellInput.dataset.formula) {
+      const currentEval = evaluateFormula(cellInput.dataset.formula).toString();
+      if (val === currentEval) {
+        // Value matches evaluated formula => treat as unchanged, keep formula.
+        // Ensure cell still shows evaluated value (may reformat after edits elsewhere)
+        cellInput.value = currentEval;
+        return;
+      }
+    }
+    // Either there was no formula, or the user overwrote the evaluated value.
+    clearFormula(cellInput);
+  }
+}
+
+// Whenever a cell value changes (blur or Enter key commit), recalc formulas
+function commitCellValue(cellInput) {
+  evaluateCellFormula(cellInput);
+  triggerRecalc();
+  updateInspectorDisplay();
+}
+
+// Save button dummy click
+document.getElementById('save-btn').addEventListener('click', function(e) {
+  e.preventDefault();
+  this.classList.add('active');
+  setTimeout(() => this.classList.remove('active'), 150);
+});
+
+// After clearing cells via Backspace/Delete, recalc formulas
+function clearSelectedCells() {
+  selectedCells.forEach(cell => {
+    cell.value = '';
+    clearFormula(cell);
+  });
+  triggerRecalc();
+}
+
+// Attach input listener for redundancy (covers paste events, etc.)
+document.querySelectorAll('input[data-cell]').forEach(inp => {
+  inp.addEventListener('input', () => { triggerRecalc(); updateInspectorDisplay(); });
+});
+
+// MutationObserver as final fallback – observes changes to data-formula attribute
+const observer = new MutationObserver(triggerRecalc);
+document.querySelectorAll('input[data-cell]').forEach(inp => {
+  observer.observe(inp, { attributes: true, attributeFilter: ['data-formula'] });
+});
+
+function updateInspectorDisplay() {
+  if (selectedCells.size === 1) {
+    const cell = selectedCells.values().next().value;
+    inspectorRef.textContent = cell.dataset.cell;
+    const raw = cell.dataset.formula ? '=' + cell.dataset.formula : cell.value;
+    inspectorRaw.value = raw;
+    inspectorEval.value = cell.value;
+  } else {
+    inspectorRef.textContent = '';
+    inspectorRaw.value = '';
+    inspectorEval.value = '';
+  }
+}
+
+// Helper: focus the logically top-left cell in current selection
+function focusTopLeftOfSelection() {
+  if (selectedCells.size === 0) return;
+  let topLeft = null;
+  let minRow = Infinity, minCol = Infinity;
+  selectedCells.forEach(cell => {
+    const coords = getCellCoords(cell);
+    if (!coords) return;
+    if (coords.row < minRow || (coords.row === minRow && coords.col < minCol)) {
+      minRow = coords.row;
+      minCol = coords.col;
+      topLeft = cell;
+    }
+  });
+  if (topLeft) {
+    activeInput = topLeft;
+    setTimeout(() => {
+      topLeft.focus();
+      topLeft.select();
+    }, 10);
+  }
+}
+</script>
+</body>
+</html> 
