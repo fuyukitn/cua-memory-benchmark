@@ -6,9 +6,9 @@
 </head>
 <body>
 <div class="container mt-4">
-  <a href="/" class="btn btn-secondary mb-3">← Back to Store</a>
+  <a href="{{ url_for('shop.index') }}" class="btn btn-secondary mb-3">← Back to Store</a>
   <h2>Your Cart</h2>
-  <form method="post" action="{{ url_for('update_cart') }}">
+  <form method="post" action="{{ url_for('shop.update_cart') }}">
     <table class="table">
       <thead><tr><th>Product</th><th>Price</th><th>Quantity</th><th>Subtotal</th></tr></thead>
       <tbody>

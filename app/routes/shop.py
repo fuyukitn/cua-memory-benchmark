@@ -1,13 +1,13 @@
-from flask import Flask, render_template, request, redirect, url_for, session
+from flask import Blueprint, render_template, request, redirect, url_for, session
 import json
+import os
 
-app = Flask(__name__)
-app.secret_key = 'secret-key'
+shop_bp = Blueprint("shop", __name__, url_prefix="/shop")
 
-with open("data/products.json") as f:
+with open(os.path.join(os.path.dirname(__file__), "../../data/products.json")) as f:
     products = json.load(f)
 
-@app.context_processor
+@shop_bp.app_context_processor
 def inject_settings():
     return {
         "dark_mode": session.get("dark_mode", False),
@@ -16,36 +16,36 @@ def inject_settings():
         "categories": sorted(set(p["category"] for p in products))
     }
 
-@app.route("/")
-@app.route("/category/<category>")
+@shop_bp.route("/")
+@shop_bp.route("/category/<category>")
 def index(category=None):
     query = request.args.get("q", "").lower()
     filtered = [
         p for p in products
         if (query in p["name"].lower()) and (p["category"] == category if category else True)
     ]
-    return render_template("index.html", products=filtered, query=query, selected_category=category)
+    return render_template("shop/index.html", products=filtered, query=query, selected_category=category)
 
-@app.route("/toggle/<setting>")
+@shop_bp.route("/toggle/<setting>")
 def toggle_setting(setting):
     if setting in ["dark_mode", "student_discount", "international_shipping"]:
         session[setting] = not session.get(setting, False)
-    return redirect(request.referrer or url_for("index"))
+    return redirect(request.referrer or url_for("shop.index"))
 
-@app.route("/product/<int:pid>")
+@shop_bp.route("/product/<int:pid>")
 def product_detail(pid):
     product = next((p for p in products if p["id"] == pid), None)
-    return render_template("product.html", product=product)
+    return render_template("shop/product.html", product=product)
 
-@app.route("/add-to-cart/<int:pid>", methods=["POST"])
+@shop_bp.route("/add-to-cart/<int:pid>", methods=["POST"])
 def add_to_cart(pid):
     qty = int(request.form.get("quantity", 1))
     cart = session.get("cart", {})
     cart[str(pid)] = cart.get(str(pid), 0) + qty
     session["cart"] = cart
-    return redirect(url_for("cart"))
+    return redirect(url_for("shop.cart"))
 
-@app.route("/cart")
+@shop_bp.route("/cart")
 def cart():
     cart = session.get("cart", {})
     cart_items, total = [], 0
@@ -63,9 +63,9 @@ def cart():
             cart_items.append(item)
     if session.get("international_shipping"):
         total += 100
-    return render_template("cart.html", products=cart_items, total=round(total, 2))
+    return render_template("shop/cart.html", products=cart_items, total=round(total, 2))
 
-@app.route("/update-cart", methods=["POST"])
+@shop_bp.route("/update-cart", methods=["POST"])
 def update_cart():
     cart = {}
     for pid, qty in request.form.items():
@@ -73,7 +73,4 @@ def update_cart():
         if qty > 0:
             cart[pid] = qty
     session["cart"] = cart
-    return redirect(url_for("cart"))
-
-if __name__ == "__main__":
-    app.run(debug=True)
+    return redirect(url_for("shop.cart"))

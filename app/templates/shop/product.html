@@ -15,7 +15,7 @@
       <h2>{{ product.name }}</h2>
       <p>{{ product.description or '' }}</p>
       <p class="text-danger">${% if session.student_discount %}{{ (product.price * 0.8)|round(2) }} (Student Discount){% else %}{{ product.price }}{% endif %}</p>
-      <form action="{{ url_for('add_to_cart', pid=product.id) }}" method="post">
+      <form action="{{ url_for('shop.add_to_cart', pid=product.id) }}" method="post">
         <label>Quantity:</label>
         <input type="number" name="quantity" value="1" min="1" class="form-control w-25 mb-3">
         <button type="submit" class="btn btn-warning">Add to Cart</button>
