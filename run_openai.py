@@ -1,6 +1,7 @@
 """
-OpenAI sanity-check with tool-calling support.
-Requires OPENAI_API_KEY in .env.
+Simple try of the agent.
+
+@dev You need to add OPENAI_API_KEY to your environment variables.
 """
 import asyncio
 from browser_use import Agent
