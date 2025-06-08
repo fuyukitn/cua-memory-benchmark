@@ -1,4 +1,5 @@
-from flask import Blueprint, render_template, request, redirect, url_for, session
+from flask import Blueprint, render_template, request, redirect, url_for, session, jsonify
+from app.utils.log_utils import add_log, get_logs, reset_logs
 import json
 import os
 
@@ -74,3 +75,19 @@ def update_cart():
             cart[pid] = qty
     session["cart"] = cart
     return redirect(url_for("shop.cart"))
+
+# Log API
+@shop_bp.route("/api/logs", methods=["GET"])
+def get_shop_logs():
+    return jsonify(get_logs())
+
+@shop_bp.route("/api/logs", methods=["POST"])
+def post_shop_log():
+    data = request.get_json()
+    add_log(data)
+    return jsonify(success=True)
+
+@shop_bp.route("/api/reset_logs", methods=["POST"])
+def reset_shop_logs():
+    reset_logs()
+    return jsonify(success=True)

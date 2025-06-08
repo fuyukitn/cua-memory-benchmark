@@ -6,7 +6,7 @@
 </head>
 <body>
 <div class="container mt-4">
-  <a href="{{ url_for('shop.index') }}" class="btn btn-secondary mb-3">← Back to Store</a>
+  <a href="{{ url_for('shop.index') }}" class="btn btn-secondary mb-3" data-event="back-to-store">← Back to Store</a>
   <h2>Your Cart</h2>
   <form method="post" action="{{ url_for('shop.update_cart') }}">
     <table class="table">
@@ -26,7 +26,27 @@
     <p>International Shipping: $100.00</p>
     {% endif %}
     <h4>Total: ${{ total }}</h4>
-    <button type="submit" class="btn btn-success">Update Cart</button>
+    <button type="submit" class="btn btn-success" data-event="update-cart">Update Cart</button>
   </form>
 </div>
-</body></html>
+</body>
+<script>
+  document.addEventListener("click", (e) => {
+    const el = e.target.closest("a, button");
+    if (!el) return;
+
+    const payload = {
+      event: el.dataset.event || "click",
+      target: el.id || el.className || el.tagName,
+      path: window.location.pathname,
+      timestamp: Date.now()
+    };
+
+    fetch("/shop/api/logs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+  });
+</script>
+</html>

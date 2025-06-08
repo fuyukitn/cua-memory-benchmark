@@ -6,7 +6,11 @@
 </head>
 <body>
 <div class="container mt-4">
-  <a href="/" class="btn btn-secondary mb-3">← Back</a>
+  <a href="{{ url_for('shop.index') }}"
+    class="btn btn-secondary mb-3"
+    data-event="back-to-store">
+    ← Back
+  </a>
   <div class="row">
     <div class="col-md-6">
       <img src="{{ product.image }}" class="img-fluid" alt="{{ product.name }}">
@@ -18,9 +22,38 @@
       <form action="{{ url_for('shop.add_to_cart', pid=product.id) }}" method="post">
         <label>Quantity:</label>
         <input type="number" name="quantity" value="1" min="1" class="form-control w-25 mb-3">
-        <button type="submit" class="btn btn-warning">Add to Cart</button>
+        <button type="submit"
+                class="btn btn-warning"
+                data-event="add-to-cart"
+                data-product-id="{{ product.id }}"
+                data-product-name="{{ product.name }}">
+          Add to Cart
+        </button>
       </form>
     </div>
   </div>
 </div>
-</body></html>
+</body>
+<script>
+  document.addEventListener("click", (e) => {
+    const el = e.target.closest("a, button");
+    if (!el) return;
+
+    const payload = {
+      event: el.dataset.event || "click",
+      target: el.id || el.className || el.tagName,
+      path: window.location.pathname,
+      timestamp: Date.now()
+    };
+
+    if (el.dataset.productId) payload.product_id = el.dataset.productId;
+    if (el.dataset.productName) payload.product_name = el.dataset.productName;
+
+    fetch("/shop/api/logs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+  });
+</script>
+</html>
