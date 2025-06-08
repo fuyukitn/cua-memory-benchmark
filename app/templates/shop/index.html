@@ -24,15 +24,21 @@
     <div class="dropdown me-2">
       <button class="btn btn-secondary dropdown-toggle" data-bs-toggle="dropdown">Settings</button>
       <ul class="dropdown-menu">
-        <li><a class="dropdown-item" href="{{ url_for('shop.toggle_setting', setting='dark_mode') }}">Dark Mode: {{ 'On' if dark_mode else 'Off' }}</a></li>
-        <li><a class="dropdown-item" href="{{ url_for('shop.toggle_setting', setting='student_discount') }}">Student Discount: {{ 'On' if student_discount else 'Off' }}</a></li>
-        <li><a class="dropdown-item" href="{{ url_for('shop.toggle_setting', setting='international_shipping') }}">International Shipping: {{ 'On' if international_shipping else 'Off' }}</a></li>
+        <li><a class="dropdown-item"
+               href="{{ url_for('shop.toggle_setting', setting='dark_mode') }}"
+               data-event="toggle-setting">Dark Mode: {{ 'On' if dark_mode else 'Off' }}</a></li>
+        <li><a class="dropdown-item"
+               href="{{ url_for('shop.toggle_setting', setting='student_discount') }}"
+               data-event="toggle-setting">Student Discount: {{ 'On' if student_discount else 'Off' }}</a></li>
+        <li><a class="dropdown-item"
+               href="{{ url_for('shop.toggle_setting', setting='international_shipping') }}"
+               data-event="toggle-setting">International Shipping: {{ 'On' if international_shipping else 'Off' }}</a></li>
       </ul>
     </div>
     <a href="{{ url_for('shop.cart') }}" class="btn btn-warning">🛒 Cart</a>
-    <button id="reset-logs" class="btn btn-outline-light ms-2">Reset Logs</button>
   </div>
 </nav>
+
 <div class="container mt-4">
   <ul class="nav nav-pills mb-3">
     <li class="nav-item"><a class="nav-link {% if not selected_category %}active{% endif %}" href="{{ url_for('shop.index') }}">All</a></li>
@@ -49,10 +55,10 @@
           <h5 class="card-title">{{ p.name }}</h5>
           <p class="card-text text-danger">${{ p.price }}</p>
           <a href="{{ url_for('shop.product_detail', pid=p.id) }}"
-            class="btn btn-primary mt-auto"
-            data-event="view-product"
-            data-product-id="{{ p.id }}"
-            data-product-name="{{ p.name }}">
+             class="btn btn-primary mt-auto"
+             data-event="view-product"
+             data-product-id="{{ p.id }}"
+             data-product-name="{{ p.name }}">
             View
           </a>
         </div>
@@ -61,16 +67,17 @@
     {% endfor %}
   </div>
 </div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-  // send logs
   document.addEventListener("click", (e) => {
     const el = e.target.closest("a, button");
-
     if (!el) return;
 
+    const eventType = el.dataset.event || "click";
+
     const payload = {
-      event: el.dataset.event || "click",
+      event: eventType,
       target: el.id || el.className || el.tagName,
       path: window.location.pathname,
       timestamp: Date.now()
@@ -79,6 +86,19 @@
     if (el.dataset.productId) payload.product_id = el.dataset.productId;
     if (el.dataset.productName) payload.product_name = el.dataset.productName;
 
+    if (eventType === "toggle-setting" && el.href) {
+      e.preventDefault();
+      fetch("/shop/api/logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      }).then(() => {
+        window.location.href = el.href;
+      });
+      return;
+    }
+
+    // log
     fetch("/shop/api/logs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -86,13 +106,21 @@
     });
   });
 
-  // reset logs
-  const resetBtn = document.getElementById("reset-logs");
-  if (resetBtn) {
-    resetBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      fetch("/shop/api/reset_logs", { method: "POST" })
-        .then(() => alert("Logs reset!"));
+  // Log search form
+  const searchForm = document.querySelector("form[action*='shop']");
+  if (searchForm) {
+    searchForm.addEventListener("submit", (e) => {
+      const input = searchForm.querySelector("input[name='q']");
+      fetch("/shop/api/logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event: "search",
+          query: input?.value || "",
+          path: window.location.pathname,
+          timestamp: Date.now()
+        })
+      });
     });
   }
 </script>
